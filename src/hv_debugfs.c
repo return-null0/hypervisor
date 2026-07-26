@@ -1,6 +1,7 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include "vmx_init.h"
+#include "ept.h"
 
 static struct dentry *hv_root;
 
@@ -59,6 +60,34 @@ static const struct file_operations vmxon_region_fops = {
     .llseek  = seq_lseek,
     .release = single_release,
 };
+static int ept_state_show(struct seq_file *m, void *v)
+{
+    struct ept_state st;
+
+    ept_get_state(&st);
+
+    seq_puts(m, "EPT state\n");
+    seq_printf(m, "  initialized   : %s\n", st.initialized ? "yes" : "no");
+    seq_printf(m, "  pml4_virt     : %p\n", st.pml4);
+    seq_printf(m, "  pml4_phys     : 0x%llx\n",
+               (unsigned long long)st.pml4_phys);
+    seq_printf(m, "  mapped_bytes  : %lu\n", st.mapped_bytes);
+
+    return 0;
+}
+
+static int ept_state_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, ept_state_show, NULL);
+}
+
+static const struct file_operations ept_state_fops = {
+    .owner   = THIS_MODULE,
+    .open    = ept_state_open,
+    .read    = seq_read,
+    .llseek  = seq_lseek,
+    .release = single_release,
+};
 
 int hv_debugfs_init(void)
 {
@@ -68,6 +97,7 @@ int hv_debugfs_init(void)
 
     debugfs_create_file("vmx_caps", 0444, hv_root, NULL, &vmx_caps_fops);
     debugfs_create_file("vmxon_region", 0444, hv_root, NULL, &vmxon_region_fops);
+    debugfs_create_file("ept_state", 0444, hv_root, NULL, &ept_state_fops);
 
     pr_info("hv_debugfs: created /sys/kernel/debug/hv/*\n");
     return 0;

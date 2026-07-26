@@ -74,6 +74,17 @@ cat /sys/kernel/debug/hv/vmx_caps
 cat /sys/kernel/debug/hv/vmxon_region
 ```
 
+### EPT Mock (DebugFS)
+
+The module builds a small, safe EPT hierarchy in kernel memory
+(PML4 → PDPT → PD → PT) and identity‑maps the first 16 MB of
+guest‑physical space. You can inspect it through debugfs:
+
+    cat /sys/kernel/debug/hv/ept_state
+
+This shows whether EPT is initialized, the PML4 virtual/physical
+address, and how many bytes were identity‑mapped.
+
 
 ## Notes
 Minimal, educational, not a full hypervisor. This is a safe-mode hypervisor skeleton Focuses on VMX init, VMCS setup, EPT, and basic VM‑exit handling. 

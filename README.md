@@ -4,11 +4,10 @@ A tiny VT‑x/AMD‑V hypervisor implemented as a Linux kernel module. Provides 
 
 ## Structure
     src/
-    vmx_init.c      # VMXON + VMCS setup
-    vmexit.c        # VM‑exit dispatcher
-    ept.c           # EPT/NPT identity‑mapped paging
+        vmx_init.c      # VMXON + VMCS setup
+        vmexit.c        # VM‑exit dispatcher
+        ept.c           # EPT/NPT identity‑mapped paging
     hypervisor.c    # Entry + control loop
-    guest.bin       # Minimal guest program
     Makefile          # Kernel module build
     README.md         # Project overview
 

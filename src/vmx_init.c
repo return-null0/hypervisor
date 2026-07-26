@@ -11,9 +11,13 @@
 
 #define IA32_FEATURE_CONTROL_MSR 0x3A
 #define IA32_VMX_BASIC_MSR       0x480
+
 MODULE_LICENSE("GPL");
 
-static bool vmx_enabled_globally;
+static bool vmx_enabled_globally = false;
+
+static void *vmxon_region = NULL;
+static phys_addr_t vmxon_phys = 0;
 
 bool vmx_supported(void)
 {
@@ -27,6 +31,7 @@ bool vmx_supported(void)
     return false;
 #endif
 
+    pr_info("vmx_init: CPU reports VMX capability\n");
     return true;
 }
 
@@ -37,20 +42,18 @@ static int vmx_enable_feature_control(void)
     rdmsrl(IA32_FEATURE_CONTROL_MSR, msr);
 
     if (!(msr & 0x1)) {
-        pr_err("vmx_init: BIOS did not lock FEATURE_CONTROL MSR, refusing to modify in minimal skeleton\n");
+        pr_err("vmx_init: FEATURE_CONTROL MSR is not locked by BIOS\n");
         return -EIO;
     }
 
     if (!(msr & (1ULL << 2))) {
-        pr_err("vmx_init: VMX outside SMX not enabled in FEATURE_CONTROL MSR\n");
+        pr_err("vmx_init: VMX outside SMX is not enabled in FEATURE_CONTROL MSR\n");
         return -EIO;
     }
 
+    pr_info("vmx_init: FEATURE_CONTROL MSR indicates VMX is allowed\n");
     return 0;
 }
-
-static void *vmxon_region;
-static phys_addr_t vmxon_phys;
 
 static int vmx_allocate_vmxon(void)
 {
@@ -70,36 +73,21 @@ static int vmx_allocate_vmxon(void)
 
     *(u32 *)vmxon_region = revision_id;
 
-    pr_info("vmx_init: VMXON region allocated at virtual %p physical 0x%llx\n",
-            vmxon_region, (unsigned long long)vmxon_phys);
+    pr_info("vmx_init: VMXON region allocated\n");
+    pr_info("vmx_init:   virtual = %p\n", vmxon_region);
+    pr_info("vmx_init:   physical = 0x%llx\n",
+            (unsigned long long)vmxon_phys);
+    pr_info("vmx_init:   revision_id = 0x%x\n", revision_id);
 
     return 0;
 }
-static int vmx_enter_root(void)
-{
-    u64 rflags;
 
-    asm volatile (
-        "vmxon %1\n\t"
-        "pushfq\n\t"
-        "pop %0\n\t"
-        : "=r"(rflags)
-        : "m"(vmxon_phys)
-        : "memory"
-    );
-
-    if (rflags & (1 << 0)) {
-        pr_err("vmx_init: VMXON failed, CF=1\n");
-        return -EIO;
-    }
-
-    pr_info("vmx_init: VMXON succeeded, CPU is now in VMX root mode\n");
-    return 0;
-}
 
 int vmx_enable(void)
 {
     int ret;
+
+    pr_info("vmx_init: starting safe VMX enable sequence\n");
 
     if (!vmx_supported())
         return -ENODEV;
@@ -108,36 +96,30 @@ int vmx_enable(void)
     if (ret)
         return ret;
 
-    __write_cr4(__read_cr4() | X86_CR4_VMXE);
+    pr_info("vmx_init: CR4.VMXE will NOT be set (safe mode)\n");
 
     ret = vmx_allocate_vmxon();
     if (ret)
         return ret;
 
-    ret = vmx_enter_root();
-    if (ret)
-        return ret;
+    pr_info("vmx_init: VMXON region prepared, but VMXON instruction NOT executed\n");
+    pr_info("vmx_init: running in SAFE SKELETON MODE\n");
 
-    vmx_enabled_globally = true;
+    vmx_enabled_globally = false; /* never entered VMX root */
     return 0;
-}
-
-static void vmx_leave_root(void)
-{
-    asm volatile("vmxoff");
 }
 
 void vmx_disable(void)
 {
-    if (!vmx_enabled_globally)
-        return;
+    pr_info("vmx_init: disabling VMX (safe skeleton)\n");
 
-    vmx_leave_root();
 
-    __write_cr4(__read_cr4() & ~X86_CR4_VMXE);
-
-    if (vmxon_region)
+    if (vmxon_region) {
         free_page((unsigned long)vmxon_region);
+        vmxon_region = NULL;
+        vmxon_phys = 0;
+        pr_info("vmx_init: VMXON region freed\n");
+    }
 
     vmx_enabled_globally = false;
 }

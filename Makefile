@@ -4,9 +4,12 @@ obj-m += hv.o
 
 hv-y := \
     hypervisor.o \
+    src/hv_core.o \
+    src/hv_debugfs.o \
     src/vmx_init.o \
     src/vmexit.o \
     src/ept.o
+
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd)

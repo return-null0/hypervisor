@@ -2,40 +2,43 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 
-#include "src/vmx_init.h"
+#include "src/hv_core.h"
+#include "src/hv_debugfs.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Renaldo");
 MODULE_DESCRIPTION("Minimal VT-x Hypervisor Skeleton");
-MODULE_VERSION("0.1");
+MODULE_VERSION("0.3");
 
 static int __init hypervisor_init(void)
 {
     int ret;
 
-    pr_info("hypervisor: init — starting VMX capability checks\n");
+    pr_info("hypervisor: init — starting hypervisor core\n");
 
-    /* Step 1: CPU capability */
-    if (!vmx_supported()) {
-        pr_err("hypervisor: CPU does not support VMX\n");
-        return -ENODEV;
-    }
-
-    ret = vmx_enable();
+    ret = hv_init();
     if (ret) {
-        pr_err("hypervisor: vmx_enable failed (%d)\n", ret);
+        pr_err("hypervisor: hv_init failed (%d)\n", ret);
         return ret;
     }
 
-    pr_info("hypervisor: VMX enabled — hypervisor root mode active\n");
+    ret = hv_debugfs_init();
+    if (ret) {
+        pr_err("hypervisor: hv_debugfs_init failed (%d)\n", ret);
+        hv_shutdown();
+        return ret;
+    }
+
+    pr_info("hypervisor: hypervisor core initialized with debugfs\n");
     return 0;
 }
 
 static void __exit hypervisor_exit(void)
 {
-    pr_info("hypervisor: exit — disabling VMX\n");
-    vmx_disable();
-    pr_info("hypervisor: VMX disabled — module unloaded\n");
+    pr_info("hypervisor: exit — shutting down hypervisor core\n");
+    hv_debugfs_exit();
+    hv_shutdown();
+    pr_info("hypervisor: exit complete\n");
 }
 
 module_init(hypervisor_init);

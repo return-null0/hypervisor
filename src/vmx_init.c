@@ -82,19 +82,24 @@ static int vmx_allocate_vmxon(void)
     return 0;
 }
 
+static struct vmx_state g_vmx_state;
 
 int vmx_enable(void)
 {
     int ret;
 
+    memset(&g_vmx_state, 0, sizeof(g_vmx_state));
+
     pr_info("vmx_init: starting safe VMX enable sequence\n");
 
-    if (!vmx_supported())
+    g_vmx_state.supported = vmx_supported();
+    if (!g_vmx_state.supported)
         return -ENODEV;
 
     ret = vmx_enable_feature_control();
     if (ret)
         return ret;
+    g_vmx_state.feature_control_ok = true;
 
     pr_info("vmx_init: CR4.VMXE will NOT be set (safe mode)\n");
 
@@ -102,17 +107,21 @@ int vmx_enable(void)
     if (ret)
         return ret;
 
+    g_vmx_state.vmxon_allocated = true;
+    g_vmx_state.vmxon_virt = vmxon_region;
+    g_vmx_state.vmxon_phys = vmxon_phys;
+    g_vmx_state.vmx_revision_id = *(u32 *)vmxon_region;
+
     pr_info("vmx_init: VMXON region prepared, but VMXON instruction NOT executed\n");
     pr_info("vmx_init: running in SAFE SKELETON MODE\n");
 
-    vmx_enabled_globally = false; /* never entered VMX root */
+    vmx_enabled_globally = false;
     return 0;
 }
 
 void vmx_disable(void)
 {
     pr_info("vmx_init: disabling VMX (safe skeleton)\n");
-
 
     if (vmxon_region) {
         free_page((unsigned long)vmxon_region);
@@ -121,5 +130,13 @@ void vmx_disable(void)
         pr_info("vmx_init: VMXON region freed\n");
     }
 
+    memset(&g_vmx_state, 0, sizeof(g_vmx_state));
     vmx_enabled_globally = false;
+}
+
+void vmx_get_state(struct vmx_state *out)
+{
+    if (!out)
+        return;
+    *out = g_vmx_state;
 }

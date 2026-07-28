@@ -7,6 +7,7 @@
 #include <asm/io.h>
 #include <asm/processor-flags.h>
 #include <asm/special_insns.h>
+#include <asm/tlbflush.h> /* Included for cr4_set_bits and cr4_clear_bits */
 #include "vmx_init.h"
 
 #define IA32_FEATURE_CONTROL_MSR 0x3A
@@ -70,13 +71,11 @@ static int vmx_allocate_vmxon(void)
     }
 
     vmxon_phys = virt_to_phys(vmxon_region);
-
     *(u32 *)vmxon_region = revision_id;
 
     pr_info("vmx_init: VMXON region allocated\n");
     pr_info("vmx_init:   virtual = %p\n", vmxon_region);
-    pr_info("vmx_init:   physical = 0x%llx\n",
-            (unsigned long long)vmxon_phys);
+    pr_info("vmx_init:   physical = 0x%llx\n", (unsigned long long)vmxon_phys);
     pr_info("vmx_init:   revision_id = 0x%x\n", revision_id);
 
     return 0;
@@ -87,10 +86,10 @@ static struct vmx_state g_vmx_state;
 int vmx_enable(void)
 {
     int ret;
+    u8 vmxon_ret;
 
     memset(&g_vmx_state, 0, sizeof(g_vmx_state));
-
-    pr_info("vmx_init: starting safe VMX enable sequence\n");
+    pr_info("vmx_init: starting active VMX enable sequence\n");
 
     g_vmx_state.supported = vmx_supported();
     if (!g_vmx_state.supported)
@@ -101,8 +100,6 @@ int vmx_enable(void)
         return ret;
     g_vmx_state.feature_control_ok = true;
 
-    pr_info("vmx_init: CR4.VMXE will NOT be set (safe mode)\n");
-
     ret = vmx_allocate_vmxon();
     if (ret)
         return ret;
@@ -112,16 +109,39 @@ int vmx_enable(void)
     g_vmx_state.vmxon_phys = vmxon_phys;
     g_vmx_state.vmx_revision_id = *(u32 *)vmxon_region;
 
-    pr_info("vmx_init: VMXON region prepared, but VMXON instruction NOT executed\n");
-    pr_info("vmx_init: running in SAFE SKELETON MODE\n");
+    cr4_set_bits(X86_CR4_VMXE);
+    pr_info("vmx_init: CR4.VMXE enabled\n");
 
-    vmx_enabled_globally = false;
+    asm volatile (
+        "vmxon %[pa]\n\t"
+        "setna %[ret]\n\t"
+        : [ret] "=rm" (vmxon_ret)
+        : [pa] "m" (vmxon_phys)
+        : "cc", "memory"
+    );
+
+    if (vmxon_ret) {
+        pr_err("vmx_init: VMXON instruction failed\n");
+        cr4_clear_bits(X86_CR4_VMXE); /* Revert CR4 state safely */
+        return -EFAULT;
+    }
+
+    pr_info("vmx_init: VMXON executed successfully. CPU is in VMX Root Operation.\n");
+    vmx_enabled_globally = true;
     return 0;
 }
 
 void vmx_disable(void)
 {
-    pr_info("vmx_init: disabling VMX (safe skeleton)\n");
+    pr_info("vmx_init: disabling VMX\n");
+
+    if (vmx_enabled_globally) {
+        asm volatile ("vmxoff" : : : "cc");
+        pr_info("vmx_init: VMXOFF executed\n");
+
+        cr4_clear_bits(X86_CR4_VMXE);
+        vmx_enabled_globally = false;
+    }
 
     if (vmxon_region) {
         free_page((unsigned long)vmxon_region);
@@ -131,7 +151,6 @@ void vmx_disable(void)
     }
 
     memset(&g_vmx_state, 0, sizeof(g_vmx_state));
-    vmx_enabled_globally = false;
 }
 
 void vmx_get_state(struct vmx_state *out)
